@@ -14,8 +14,8 @@ void Copter::crash_check()
 {
     static uint16_t crash_counter;  // number of iterations vehicle may have been crashed
 
-    // return immediately if disarmed
-    if (!motors.armed() || ap.land_complete) {
+    // return immediately if disarmed, or crash checking disabled
+    if (!motors.armed() || ap.land_complete || g.fs_crash_check == 0) {
         crash_counter = 0;
         return;
     }
@@ -33,7 +33,7 @@ void Copter::crash_check()
     }
 
     // check for angle error over 30 degrees
-    const Vector3f angle_error = attitude_control.angle_bf_error();
+    const Vector3f angle_error = attitude_control.get_att_error_rot_vec_cd();
     if (pythagorous2(angle_error.x, angle_error.y) <= CRASH_CHECK_ANGLE_DEVIATION_CD) {
         crash_counter = 0;
         return;
@@ -47,7 +47,7 @@ void Copter::crash_check()
         // log an error in the dataflash
         Log_Write_Error(ERROR_SUBSYSTEM_CRASH_CHECK, ERROR_CODE_CRASH_CHECK_CRASH);
         // send message to gcs
-        gcs_send_text_P(SEVERITY_HIGH,PSTR("Crash: Disarming"));
+        gcs_send_text(MAV_SEVERITY_EMERGENCY,"Crash: Disarming");
         // disarm motors
         init_disarm_motors();
     }
@@ -99,7 +99,7 @@ void Copter::parachute_check()
     }
 
     // check for angle error over 30 degrees
-    const Vector3f angle_error = attitude_control.angle_bf_error();
+    const Vector3f angle_error = attitude_control.get_att_error_rot_vec_cd();
     if (pythagorous2(angle_error.x, angle_error.y) <= CRASH_CHECK_ANGLE_DEVIATION_CD) {
         control_loss_count = 0;
         return;
@@ -136,7 +136,7 @@ void Copter::parachute_check()
 void Copter::parachute_release()
 {
     // send message to gcs and dataflash
-    gcs_send_text_P(SEVERITY_HIGH,PSTR("Parachute: Released!"));
+    gcs_send_text(MAV_SEVERITY_INFO,"Parachute: Released");
     Log_Write_Event(DATA_PARACHUTE_RELEASED);
 
     // disarm motors
@@ -144,6 +144,9 @@ void Copter::parachute_release()
 
     // release parachute
     parachute.release();
+
+    // deploy landing gear
+    landinggear.set_cmd_mode(LandingGear_Deploy);
 }
 
 // parachute_manual_release - trigger the release of the parachute, after performing some checks for pilot error
@@ -159,7 +162,7 @@ void Copter::parachute_manual_release()
     // do not release if we are landed or below the minimum altitude above home
     if (ap.land_complete) {
         // warn user of reason for failure
-        gcs_send_text_P(SEVERITY_HIGH,PSTR("Parachute: Landed"));
+        gcs_send_text(MAV_SEVERITY_INFO,"Parachute: Landed");
         // log an error in the dataflash
         Log_Write_Error(ERROR_SUBSYSTEM_PARACHUTE, ERROR_CODE_PARACHUTE_LANDED);
         return;
@@ -168,7 +171,7 @@ void Copter::parachute_manual_release()
     // do not release if we are landed or below the minimum altitude above home
     if ((parachute.alt_min() != 0 && (current_loc.alt < (int32_t)parachute.alt_min() * 100))) {
         // warn user of reason for failure
-        gcs_send_text_P(SEVERITY_HIGH,PSTR("Parachute: Too Low"));
+        gcs_send_text(MAV_SEVERITY_ALERT,"Parachute: Too low");
         // log an error in the dataflash
         Log_Write_Error(ERROR_SUBSYSTEM_PARACHUTE, ERROR_CODE_PARACHUTE_TOO_LOW);
         return;

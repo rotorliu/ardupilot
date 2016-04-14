@@ -29,9 +29,8 @@
 /// TinyGPS parser by Mikal Hart.
 ///
 
-#include <AP_Common.h>
+#include <AP_Common/AP_Common.h>
 
-#include <AP_Progmem.h>
 #include <ctype.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -39,6 +38,13 @@
 #include "AP_GPS_NMEA.h"
 
 extern const AP_HAL::HAL& hal;
+
+// optionally log all NMEA data for debug purposes
+// #define NMEA_LOG_PATH "nmea.log"
+
+#ifdef NMEA_LOG_PATH
+#include <stdio.h>
+#endif
 
 // SiRF init messages //////////////////////////////////////////////////////////
 //
@@ -83,13 +89,13 @@ extern const AP_HAL::HAL& hal;
     "$PUBX,40,vtg,0,1,0,0,0,0*7F\r\n"   /* VTG on at one per fix */ \
     "$PUBX,40,rmc,0,0,0,0,0,0*67\r\n"   /* RMC off (XXX suppress other message types?) */
 
-const prog_char AP_GPS_NMEA::_initialisation_blob[] PROGMEM = SIRF_INIT_MSG MTK_INIT_MSG UBLOX_INIT_MSG;
+const char AP_GPS_NMEA::_initialisation_blob[] = SIRF_INIT_MSG MTK_INIT_MSG UBLOX_INIT_MSG;
 
 // NMEA message identifiers ////////////////////////////////////////////////////
 //
-const char AP_GPS_NMEA::_gprmc_string[] PROGMEM = "GPRMC";
-const char AP_GPS_NMEA::_gpgga_string[] PROGMEM = "GPGGA";
-const char AP_GPS_NMEA::_gpvtg_string[] PROGMEM = "GPVTG";
+const char AP_GPS_NMEA::_gprmc_string[] = "GPRMC";
+const char AP_GPS_NMEA::_gpgga_string[] = "GPGGA";
+const char AP_GPS_NMEA::_gpvtg_string[] = "GPVTG";
 
 // Convenience macros //////////////////////////////////////////////////////////
 //
@@ -117,7 +123,17 @@ bool AP_GPS_NMEA::read(void)
 
     numc = port->available();
     while (numc--) {
-        if (_decode(port->read())) {
+        char c = port->read();
+#ifdef NMEA_LOG_PATH
+        static FILE *logf = NULL;
+        if (logf == NULL) {
+            logf = fopen(NMEA_LOG_PATH, "wb");
+        }
+        if (logf != NULL) {
+            ::fwrite(&c, 1, 1, logf);
+        }
+#endif
+        if (_decode(c)) {
             parsed = true;
         }
     }
@@ -131,6 +147,7 @@ bool AP_GPS_NMEA::_decode(char c)
     switch (c) {
     case ',': // term terminators
         _parity ^= c;
+        /* no break */
     case '\r':
     case '\n':
     case '*':
@@ -244,7 +261,7 @@ bool AP_GPS_NMEA::_have_new_message()
         _last_GPGGA_ms == 0) {
         return false;
     }
-    uint32_t now = hal.scheduler->millis();
+    uint32_t now = AP_HAL::millis();
     if (now - _last_GPRMC_ms > 150 ||
         now - _last_GPGGA_ms > 150) {
         return false;
@@ -271,22 +288,24 @@ bool AP_GPS_NMEA::_term_complete()
         uint8_t checksum = 16 * _from_hex(_term[0]) + _from_hex(_term[1]);
         if (checksum == _parity) {
             if (_gps_data_good) {
+                uint32_t now = AP_HAL::millis();
                 switch (_sentence_type) {
                 case _GPS_SENTENCE_GPRMC:
+                    _last_GPRMC_ms = now;
                     //time                        = _new_time;
                     //date                        = _new_date;
                     state.location.lat     = _new_latitude;
                     state.location.lng     = _new_longitude;
                     state.ground_speed     = _new_speed*0.01f;
-                    state.ground_course_cd = _new_course;
+                    state.ground_course_cd = wrap_360_cd(_new_course);
                     make_gps_time(_new_date, _new_time * 10);
-                    state.last_gps_time_ms = hal.scheduler->millis();
+                    state.last_gps_time_ms = now;
                     // To-Do: add support for proper reporting of 2D and 3D fix
                     state.status           = AP_GPS::GPS_OK_FIX_3D;
                     fill_3d_velocity();
-                    _last_GPRMC_ms = state.last_gps_time_ms;
                     break;
                 case _GPS_SENTENCE_GPGGA:
+                    _last_GPGGA_ms = now;
                     state.location.alt  = _new_altitude;
                     state.location.lat  = _new_latitude;
                     state.location.lng  = _new_longitude;
@@ -294,12 +313,12 @@ bool AP_GPS_NMEA::_term_complete()
                     state.hdop          = _new_hdop;
                     // To-Do: add support for proper reporting of 2D and 3D fix
                     state.status        = AP_GPS::GPS_OK_FIX_3D;
-                    _last_GPGGA_ms = hal.scheduler->millis();
                     break;
                 case _GPS_SENTENCE_GPVTG:
+                    _last_GPVTG_ms = now;
                     state.ground_speed     = _new_speed*0.01f;
-                    state.ground_course_cd = _new_course;
-                    _last_GPVTG_ms = hal.scheduler->millis();
+                    state.ground_course_cd = wrap_360_cd(_new_course);
+                    fill_3d_velocity();
                     // VTG has no fix indicator, can't change fix status
                     break;
                 }
@@ -321,11 +340,11 @@ bool AP_GPS_NMEA::_term_complete()
 
     // the first term determines the sentence type
     if (_term_number == 0) {
-        if (!strcmp_P(_term, _gprmc_string)) {
+        if (!strcmp(_term, _gprmc_string)) {
             _sentence_type = _GPS_SENTENCE_GPRMC;
-        } else if (!strcmp_P(_term, _gpgga_string)) {
+        } else if (!strcmp(_term, _gpgga_string)) {
             _sentence_type = _GPS_SENTENCE_GPGGA;
-        } else if (!strcmp_P(_term, _gpvtg_string)) {
+        } else if (!strcmp(_term, _gpvtg_string)) {
             _sentence_type = _GPS_SENTENCE_GPVTG;
             // VTG may not contain a data qualifier, presume the solution is good
             // unless it tells us otherwise.

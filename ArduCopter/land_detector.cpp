@@ -113,8 +113,9 @@ void Copter::set_land_complete_maybe(bool b)
 //  has no effect when throttle is above hover throttle
 void Copter::update_throttle_thr_mix()
 {
-    // if disarmed prioritise throttle
-    if(!motors.armed()) {
+#if FRAME_CONFIG != HELI_FRAME
+    // if disarmed or landed prioritise throttle
+    if(!motors.armed() || ap.land_complete) {
         motors.set_throttle_mix_min();
         return;
     }
@@ -130,11 +131,11 @@ void Copter::update_throttle_thr_mix()
         // autopilot controlled throttle
 
         // check for aggressive flight requests - requested roll or pitch angle below 15 degrees
-        const Vector3f angle_target = attitude_control.angle_ef_targets();
+        const Vector3f angle_target = attitude_control.get_att_target_euler_cd();
         bool large_angle_request = (pythagorous2(angle_target.x, angle_target.y) > 1500.0f);
 
         // check for large external disturbance - angle error over 30 degrees
-        const Vector3f angle_error = attitude_control.angle_bf_error();
+        const Vector3f angle_error = attitude_control.get_att_error_rot_vec_cd();
         bool large_angle_error = (pythagorous2(angle_error.x, angle_error.y) > 3000.0f);
 
         // check for large acceleration - falling or high turbulence
@@ -151,4 +152,5 @@ void Copter::update_throttle_thr_mix()
             motors.set_throttle_mix_min();
         }
     }
+#endif
 }

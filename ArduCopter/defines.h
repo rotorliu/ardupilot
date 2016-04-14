@@ -1,9 +1,7 @@
 // -*- tab-width: 4; Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*-
+#pragma once
 
-#ifndef _DEFINES_H
-#define _DEFINES_H
-
-#include <AP_HAL_Boards.h>
+#include <AP_HAL/AP_HAL_Boards.h>
 
 // Just so that it's completely clear...
 #define ENABLED                 1
@@ -30,9 +28,9 @@ enum autopilot_yaw_mode {
 #define CH6_PWM_TRIGGER_LOW     1200
 
 // values used by the ap.ch7_opt and ap.ch8_opt flags
-#define AUX_SWITCH_LOW              0       // indicates auxiliar switch is in the low position (pwm <1200)
-#define AUX_SWITCH_MIDDLE           1       // indicates auxiliar switch is in the middle position (pwm >1200, <1800)
-#define AUX_SWITCH_HIGH             2       // indicates auxiliar switch is in the high position (pwm >1800)
+#define AUX_SWITCH_LOW              0       // indicates auxiliary switch is in the low position (pwm <1200)
+#define AUX_SWITCH_MIDDLE           1       // indicates auxiliary switch is in the middle position (pwm >1200, <1800)
+#define AUX_SWITCH_HIGH             2       // indicates auxiliary switch is in the high position (pwm >1800)
 
 // Aux Switch enumeration
 enum aux_sw_func {
@@ -65,7 +63,11 @@ enum aux_sw_func {
     AUXSW_LOST_COPTER_SOUND =   30, // Play lost copter sound
     AUXSW_MOTOR_ESTOP =         31, // Emergency Stop Switch
     AUXSW_MOTOR_INTERLOCK =     32, // Motor On/Off switch
-    AUXSW_BRAKE =               33  // Brake flight mode
+    AUXSW_BRAKE =               33, // Brake flight mode
+	AUXSW_RELAY2 =              34, // Relay2 pin on/off (in Mission planner set CH8_OPT  = 34)
+    AUXSW_RELAY3 =              35, // Relay3 pin on/off (in Mission planner set CH9_OPT  = 35)
+    AUXSW_RELAY4 =              36, // Relay4 pin on/off (in Mission planner set CH10_OPT = 36)
+    AUXSW_THROW =               37  // change to THROW flight mode
 };
 
 // Frame types
@@ -85,7 +87,7 @@ enum aux_sw_func {
 #define HIL_MODE_SENSORS                1
 
 // Auto Pilot Modes enumeration
-enum autopilot_modes {
+enum control_mode_t {
     STABILIZE =     0,  // manual airframe angle with manual throttle
     ACRO =          1,  // manual body-frame angular rate with manual throttle
     ALT_HOLD =      2,  // manual airframe angle with automatic throttle
@@ -95,13 +97,27 @@ enum autopilot_modes {
     RTL =           6,  // automatic return to launching point
     CIRCLE =        7,  // automatic circular flight with automatic throttle
     LAND =          9,  // automatic landing with horizontal position control
-    OF_LOITER =    10,  // deprecated
     DRIFT =        11,  // semi-automous position, yaw and throttle control
     SPORT =        13,  // manual earth-frame angular rate control with manual throttle
     FLIP =         14,  // automatically flip the vehicle on the roll axis
     AUTOTUNE =     15,  // automatically tune the vehicle's roll and pitch gains
     POSHOLD =      16,  // automatic position hold with manual override, with automatic throttle
-    BRAKE =        17   // full-brake using inertial/GPS system, no pilot input
+    BRAKE =        17,  // full-brake using inertial/GPS system, no pilot input
+    THROW =        18   // throw to launch mode using inertial/GPS system, no pilot input
+};
+
+enum mode_reason_t {
+    MODE_REASON_UNKNOWN=0,
+    MODE_REASON_TX_COMMAND,
+    MODE_REASON_GCS_COMMAND,
+    MODE_REASON_RADIO_FAILSAFE,
+    MODE_REASON_BATTERY_FAILSAFE,
+    MODE_REASON_GCS_FAILSAFE,
+    MODE_REASON_EKF_FAILSAFE,
+    MODE_REASON_GPS_GLITCH,
+    MODE_REASON_MISSION_END,
+    MODE_REASON_THROTTLE_LAND_ESCAPE,
+    MODE_REASON_FENCE_BREACH
 };
 
 // Tuning enumeration
@@ -184,7 +200,8 @@ enum GuidedMode {
     Guided_TakeOff,
     Guided_WP,
     Guided_Velocity,
-    Guided_PosVel
+    Guided_PosVel,
+    Guided_Angle,
 };
 
 // RTL states
@@ -199,6 +216,7 @@ enum RTLState {
 // Alt_Hold states
 enum AltHoldModeState {
     AltHold_Disarmed,
+    AltHold_MotorStop,
     AltHold_Takeoff,
     AltHold_Flying,
     AltHold_Landed
@@ -207,6 +225,7 @@ enum AltHoldModeState {
 // Loiter states
 enum LoiterModeState {
     Loiter_Disarmed,
+    Loiter_MotorStop,
     Loiter_Takeoff,
     Loiter_Flying,
     Loiter_Landed
@@ -220,6 +239,15 @@ enum FlipState {
     Flip_Pitch_B,
     Flip_Recover,
     Flip_Abandon
+};
+
+// Throw states
+enum ThrowModeState {
+    Throw_Disarmed,
+    Throw_Detecting,
+    Throw_Uprighting,
+    Throw_HgtStabilise,
+    Throw_PosHold
 };
 
 // LAND state
@@ -246,10 +274,11 @@ enum FlipState {
 #define LOG_DATA_FLOAT_MSG              0x18
 #define LOG_AUTOTUNE_MSG                0x19
 #define LOG_AUTOTUNEDETAILS_MSG         0x1A
-#define LOG_RATE_MSG                    0x1D
 #define LOG_MOTBATT_MSG                 0x1E
 #define LOG_PARAMTUNE_MSG               0x1F
 #define LOG_HELI_MSG                    0x20
+#define LOG_PRECLAND_MSG                0x21
+#define LOG_GUIDEDTARGET_MSG            0x22
 
 #define MASK_LOG_ATTITUDE_FAST          (1<<0)
 #define MASK_LOG_ATTITUDE_MED           (1<<1)
@@ -326,6 +355,7 @@ enum FlipState {
 #define DATA_ROTOR_RUNUP_COMPLETE           58  // Heli only
 #define DATA_ROTOR_SPEED_BELOW_CRITICAL     59  // Heli only
 #define DATA_EKF_ALT_RESET                  60
+#define DATA_LAND_CANCELLED_BY_PILOT        61
 
 // Centi-degrees to radians
 #define DEGX100 5729.57795f
@@ -350,9 +380,11 @@ enum FlipState {
 #define ERROR_SUBSYSTEM_FAILSAFE_EKFINAV    17
 #define ERROR_SUBSYSTEM_BARO                18
 #define ERROR_SUBSYSTEM_CPU                 19
+#define ERROR_SUBSYSTEM_FAILSAFE_ADSB       20
 // general error codes
 #define ERROR_CODE_ERROR_RESOLVED           0
 #define ERROR_CODE_FAILED_TO_INITIALISE     1
+#define ERROR_CODE_UNHEALTHY                4
 // subsystem specific error codes -- radio
 #define ERROR_CODE_RADIO_LATE_FRAME         2
 // subsystem specific error codes -- failsafe_thr, batt, gps
@@ -367,7 +399,6 @@ enum FlipState {
 #define ERROR_CODE_CRASH_CHECK_LOSS_OF_CONTROL 2
 // subsystem specific error codes -- flip
 #define ERROR_CODE_FLIP_ABANDONED           2
-// subsystem specific error codes -- autotune
 
 // parachute failed to deploy because of low altitude or landed
 #define ERROR_CODE_PARACHUTE_TOO_LOW        2
@@ -400,6 +431,11 @@ enum FlipState {
 #define FS_BATT_LAND                        1       // switch to LAND mode on battery failsafe
 #define FS_BATT_RTL                         2       // switch to RTL mode on battery failsafe
 
+// GCS failsafe definitions (FS_GCS_ENABLE parameter)
+#define FS_GCS_DISABLED                     0
+#define FS_GCS_ENABLED_ALWAYS_RTL           1
+#define FS_GCS_ENABLED_CONTINUE_MISSION     2
+
 // EKF failsafe definitions (FS_EKF_ACTION parameter)
 #define FS_EKF_ACTION_LAND                  1       // switch to LAND mode on EKF failsafe
 #define FS_EKF_ACTION_ALTHOLD               2       // switch to ALTHOLD mode on EKF failsafe
@@ -415,5 +451,4 @@ enum FlipState {
 
 // for PILOT_THR_BHV parameter
 #define THR_BEHAVE_FEEDBACK_FROM_MID_STICK (1<<0)
-
-#endif // _DEFINES_H
+#define THR_BEHAVE_HIGH_THROTTLE_CANCELS_LAND (1<<1)
